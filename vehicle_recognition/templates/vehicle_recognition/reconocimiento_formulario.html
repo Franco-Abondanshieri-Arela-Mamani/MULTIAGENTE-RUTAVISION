@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Reconocimiento de Número de Vehículo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .resultado { margin-top: 20px; padding: 15px; border: 1px solid #ccc; background: #f9f9f9; }
+        .exito { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        #ocr-resultado { margin-top: 20px; }
+    </style>
+    <!-- Cargar Tesseract.js desde CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.1/dist/tesseract.min.js"></script>
+</head>
+<body>
+    <h1>Reconocimiento de Número de Vehículo</h1>
+    <form method="post" enctype="multipart/form-data" id="form-reconocimiento">
+        {% csrf_token %}
+        <label for="imagen">Selecciona una imagen:</label>
+        <input type="file" name="imagen" id="imagen" accept="image/*">
+        <!-- <button type="submit">Reconocer (servidor)</button> -->
+        <br><br>
+        <label>O toma una foto con la cámara:</label><br>
+        <video id="video" width="320" height="240" autoplay style="border:1px solid #ccc;"></video>
+        <br>
+        <button type="button" id="capturar">Capturar foto</button>
+        <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
+        <input type="hidden" name="imagen_webcam" id="imagen_webcam">
+        <br><br>
+        <button type="button" id="ocr-local">Reconocer número</button>
+    </form>
+
+    <div id="ocr-resultado"></div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const capturarBtn = document.getElementById('capturar');
+        const imagenWebcamInput = document.getElementById('imagen_webcam');
+        const form = document.getElementById('form-reconocimiento');
+        const ocrBtn = document.getElementById('ocr-local');
+        const ocrResultado = document.getElementById('ocr-resultado');
+        let ultimaImagenBase64 = null;
+
+        // Acceso a la webcam
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream) {
+                video.srcObject = stream;
+                video.play();
+            }).catch(function(error) {
+                video.style.display = 'none';
+                capturarBtn.style.display = 'none';
+                const msg = document.createElement('p');
+                msg.className = 'error';
+                msg.innerText = 'No se pudo acceder a la cámara: ' + error.message;
+                form.appendChild(msg);
+            });
+        } else {
+            video.style.display = 'none';
+            capturarBtn.style.display = 'none';
+            const msg = document.createElement('p');
+            msg.className = 'error';
+            msg.innerText = 'Tu navegador no soporta acceso a la cámara.';
+            form.appendChild(msg);
+        }
+
+        capturarBtn.addEventListener('click', function() {
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Convertir la imagen a base64
+            const dataURL = canvas.toDataURL('image/png');
+            imagenWebcamInput.value = dataURL;
+            ultimaImagenBase64 = dataURL;
+            canvas.style.display = 'block';
+        });
+
+        // Si se envía el formulario y hay imagen de webcam, enviar solo esa
+        form.addEventListener('submit', function(e) {
+            if (imagenWebcamInput.value) {
+                document.getElementById('imagen').value = '';
+            }
+        });
+
+        // OCR local con Tesseract.js
+        ocrBtn.addEventListener('click', function() {
+            ocrResultado.innerHTML = '<p>Procesando imagen con OCR...</p>';
+            let imageToProcess = null;
+            // Prioridad: imagen de webcam > archivo subido
+            if (ultimaImagenBase64) {
+                imageToProcess = ultimaImagenBase64;
+            } else if (document.getElementById('imagen').files.length > 0) {
+                const file = document.getElementById('imagen').files[0];
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    imageToProcess = e.target.result;
+                    procesarOCR(imageToProcess);
+                };
+                reader.readAsDataURL(file);
+                return;
+            } else {
+                ocrResultado.innerHTML = '<p class="error">Selecciona o captura una imagen primero.</p>';
+                return;
+            }
+            procesarOCR(imageToProcess);
+        });
+
+        function procesarOCR(imageData) {
+            Tesseract.recognize(
+                imageData,
+                'eng',
+                {
+                    logger: m => {
+                        // Puedes mostrar progreso si quieres
+                        // ocrResultado.innerHTML = `<p>Progreso: ${Math.round(m.progress*100)}%</p>`;
+                    }
+                }
+            ).then(({ data: { text } }) => {
+                let numero = text.replace(/\D/g, '');
+                if (numero) {
+                    ocrResultado.innerHTML = `<p class='exito'>¡Número detectado: <strong>${numero}</strong>!</p><p>Texto OCR crudo: <code>${text}</code></p>`;
+                } else {
+                    ocrResultado.innerHTML = `<p class='error'>No se pudo reconocer un número de vehículo.</p><p>Texto OCR crudo: <code>${text}</code></p>`;
+                }
+            }).catch(err => {
+                ocrResultado.innerHTML = `<p class='error'>Error en OCR: ${err.message}</p>`;
+            });
+        }
+    });
+    </script>
+
+    {% if resultado %}
+        <div class="resultado">
+            {% if resultado.detectado %}
+                <p class="exito">¡Número detectado: <strong>{{ resultado.numero }}</strong>!</p>
+                <p>Texto OCR crudo: <code>{{ resultado.texto_crudo }}</code></p>
+            {% else %}
+                <p class="error">No se pudo reconocer un número de vehículo (servidor).</p>
+                {% if resultado.texto_crudo %}
+                    <p>Texto OCR crudo: <code>{{ resultado.texto_crudo }}</code></p>
+                {% endif %}
+                {% if resultado.error %}
+                    <p>Error: {{ resultado.error }}</p>
+                {% endif %}
+            {% endif %}
+        </div>
+    {% endif %}
+</body>
+</html> 

@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulador de Detección de Obstáculos - RutaVisión</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyB18G-xzCIf3CVtZ82nzRKUNVwVQIo4eH8&libraries=places"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.1/dist/tesseract.min.js"></script>
+    <style>
+        #mapa {
+            height: 400px;
+            width: 100%;
+        }
+        #video-camara {
+            border: 2px solid #333;
+            margin-top: 20px;
+            width: 320px;
+            height: 240px;
+            display: block;
+        }
+        #canvas-camara {
+            display: none;
+        }
+        .panel-info {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+        .obstaculo-detectado {
+            color: red;
+            font-weight: bold;
+        }
+        #objetos-detectados {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f1f1f1;
+            border-radius: 8px;
+            min-height: 40px;
+        }
+        #iniciar-camara, #btn-destino {
+            background: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        #iniciar-camara:disabled, #btn-destino:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+        #destino-input {
+            width: 60%;
+            padding: 8px;
+            font-size: 15px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        #contenedor-mapa-panel {
+            position: relative;
+            width: 100%;
+            height: 600px;
+        }
+        #mapa {
+            height: 100%;
+            width: 100%;
+            min-height: 600px;
+            border: 3px solid #444;
+            border-radius: 18px;
+            box-sizing: border-box;
+        }
+        #panel-rutas {
+            position: absolute;
+            top: 85px;
+            left: 5px;
+            z-index: 1001;
+            width: 270px;
+            max-height: 80%;
+            overflow-y: auto;
+            background: #f8f9faee;
+            box-shadow: 0 4px 16px #0002;
+            border: 2px solid #444;
+            border-radius: 12px;
+            padding: 12px 8px 8px 8px;
+            transition: left 0.3s, opacity 0.3s;
+        }
+        #btn-toggle-panel {
+            position: absolute;
+            top: 40px;
+            left: 5px;
+            z-index: 1100;
+            background: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 38px;
+            height: 38px;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px #0002;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #panel-rutas.colapsado {
+            left: -290px;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 22px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #007bff; }
+        input:checked + .slider:before { transform: translateX(18px); }
+        #btn-seleccionar-destino-micro {
+            position: absolute;
+            top: 90px;
+            right: 5px;
+            left: auto;
+            z-index: 1100;
+            background: #28a745;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 38px;
+            height: 38px;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px #0002;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #info-micro-cercano {
+            display:none;
+            position:absolute;
+            top:140px;
+            right: 5px;
+            left: auto;
+            z-index:1200;
+            background:#fff;
+            border:2px solid #28a745;
+            border-radius:10px;
+            padding:12px;
+            box-shadow:0 2px 8px #0002;
+            min-width:220px;
+        }
+        #icono-destino-final {
+            position: absolute;
+            top: 100px;
+            right: 5px;
+            z-index: 1100;
+            width: 38px;
+            height: 38px;
+            cursor: grab;
+            user-select: none;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        #icono-destino-final img {
+            width: 38px;
+            height: 38px;
+            pointer-events: none;
+        }
+        #texto-micros-flotante {
+            position: absolute;
+            z-index: 2000;
+            background: #fff;
+            color: #222;
+            border: 2px solid #2979ff;
+            border-radius: 10px;
+            padding: 2px 7px 2px 7px;
+            font-size: 11px;
+            font-weight: bold;
+            box-shadow: 0 2px 8px #0002;
+            pointer-events: none;
+            display: none;
+            white-space: pre-line;
+            min-width: 100px;
+            max-width: 160px;
+        }
+        .num-micro {
+            display: inline-block;
+            background: #2979ff;
+            color: #fff;
+            border-radius: 5px;
+            font-size: 10px;
+            width: 16px;
+            height: 16px;
+            text-align: center;
+            line-height: 16px;
+            margin-right: 3px;
+            font-weight: bold;
+        }
+        #mapa.drag-over {
+            outline: 3px dashed #FF0000;
+        }
+        #btn-camara-inteligente {
+            position: absolute;
+            top: 150px;
+            right: 5px;
+            z-index: 1100;
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 50%;
+            font-size: 24px;
+            color: #fff;
+            background: #8e24aa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px #0002;
+            cursor: pointer;
+        }
+        #panel-camara-inteligente {
+            position: fixed;
+            top: 120px;
+            right: 60px;
+            z-index: 2001;
+            background: #fff;
+            border: 2px solid #8e24aa;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px #0003;
+            padding: 12px 16px 10px 16px;
+            min-width: 340px;
+            display: none;
+        }
+        .btn-cerrar-panel-camara {
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            background: #dc3545;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 26px;
+            height: 26px;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="color:#3a3aff;font-size:2.5rem;font-weight:800;letter-spacing:1px;text-shadow:0 2px 8px #0001,0 1px 0 #fff; margin-bottom: 10px; font-family: 'Segoe UI', 'Arial', sans-serif;">
+        Ruta - Vision Pro
+    </h1>
+    <div id="contenedor-mapa-panel">
+        <div id="mapa"></div>
+        <button id="btn-camara-inteligente">
+            🤖
+        </button>
+        <div id="botones-acciones"
+             style="position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:16px;z-index:1200;">
+            <button id="btn-nuevo-obstaculo" style="background:#dc3545;color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:18px;cursor:pointer;">Obstáculo</button>
+            <button id="btn-nuevo-filtro" style="background:#28a745;color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:18px;cursor:pointer;">Filtrar</button>
+        </div>
+        <div id="panel-camara-inteligente">
+            <button class="btn-cerrar-panel-camara" type="button">×</button>
+            <h4 style="margin-top:0;color:#8e24aa;">Cámara Inteligente</h4>
+            <video id="video-camara-inteligente" width="320" height="240" autoplay muted style="background:#222;"></video>
+            <div id="resultado-inteligente" style="margin-top:8px;font-size:13px;"></div>
+        </div>
+        <div id="texto-micros-flotante"></div>
+        <div id="icono-destino-final" draggable="true" title="Arrastra al mapa para encontrar micros">
+            <img src="https://maps.gstatic.com/mapfiles/ms/micons/red-dot.png" alt="Destino Final">
+        </div>
+        <button id="btn-toggle-panel" title="Mostrar/Ocultar rutas">☰</button>
+        <div id="panel-rutas">
+            <h3 style="margin-top:0;">Rutas de Transporte</h3>
+            <input type="text" id="buscador-rutas" placeholder="Buscar ruta..." style="width:90%;padding:6px;margin-bottom:8px;">
+            <div id="lista-rutas">
+                <div class="item-ruta" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#eef;">
+                    <div>
+                        <b>IDA - RUTA 01</b><br><span style="font-size:13px;">01 Urbano</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" class="chk-ruta" data-ruta="01_ida">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="item-ruta" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#eef;">
+                    <div>
+                        <b>REGRESO - RUTA 01</b><br><span style="font-size:13px;">01 Urbano</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" class="chk-ruta" data-ruta="01_regreso">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="item-ruta" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#eef;">
+                    <div>
+                        <b>IDA - RUTA 22</b><br><span style="font-size:13px;">22 Urbano</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" class="chk-ruta" data-ruta="22_ida">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="item-ruta" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#eef;">
+                    <div>
+                        <b>REGRESO - RUTA 22</b><br><span style="font-size:13px;">22 Urbano</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" class="chk-ruta" data-ruta="22_regreso">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="item-ruta" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#eef;">
+                    <div>
+                        <b>IDA - RUTA 44</b><br><span style="font-size:13px;">44 Urbano</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" class="chk-ruta" data-ruta="44_inicio">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="item-ruta" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:8px;border:1px solid #ccc;border-radius:8px;background:#eef;">
+                    <div>
+                        <b>REGRESO - RUTA 44</b><br><span style="font-size:13px;">44 Urbano</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" class="chk-ruta" data-ruta="44_regreso">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="filtro-obstaculo-panel" style="display:none; position:fixed; top:15%; left:50%; transform:translateX(-50%); background:#fff; border:2px solid #28a745; border-radius:10px; padding:18px; z-index:1000; box-shadow:0 4px 16px #0002;">
+        <h3>Filtrar obstáculos</h3>
+        <label>Tipo:<br>
+            <select id="filtro-tipo-obstaculo">
+                <option value="todos">Todos</option>
+                <option value="bache">Bache</option>
+                <option value="poste">Poste</option>
+                <option value="vehiculo_mal_estacionado">Vehículo mal estacionado</option>
+                <option value="escalera">Escalera</option>
+                <option value="rampa">Rampa</option>
+                <option value="señal">Señal</option>
+                <option value="otro">Otro</option>
+            </select>
+        </label><br><br>
+        <button id="aplicar-filtro-obstaculo" style="background:#28a745; color:#fff; border:none; padding:8px 18px; border-radius:5px; font-size:15px;">Aplicar filtro</button>
+        <button id="cerrar-filtro-obstaculo" style="margin-left:10px;">Cerrar</button>
+    </div>
+    <div id="form-reportar-obstaculo" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); background:#fff; border:2px solid #007bff; border-radius:10px; padding:20px; z-index:1000; box-shadow:0 4px 16px #0002;">
+        <h3>Reportar obstáculo</h3>
+        <form id="obstaculo-form">
+            <label>Tipo:<br>
+                <select id="tipo-obstaculo-modal" required style="width:100%;padding:8px;margin-bottom:12px;">
+                    <option value="bache">Bache</option>
+                    <option value="poste">Poste</option>
+                    <option value="muro">Muro</option>
+                    <option value="vehiculo_mal_estacionado">Vehículo Mal Estacionado</option>
+                    <option value="rampa">Rampa Elevada</option>
+                    <option value="escalera">Escalera</option>
+                    <option value="cruce_peligroso">Cruce Peligroso</option>
+                    <option value="vereda_estrecha">Vereda Estrecha</option>
+                    <option value="zona_trafico_intenso">Zona de Tráfico Intenso</option>
+                    <option value="otro">Otro</option>
+                </select>
+            </label>
+            <label>Descripción:<br>
+                <textarea id="desc-obstaculo-modal" rows="2" style="width:100%;padding:8px;margin-bottom:12px;"></textarea>
+            </label>
+            <div id="msg-obstaculo" style="color:#28a745;margin-bottom:8px;"></div>
+            <button type="submit" style="background:#dc3545;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-size:16px;cursor:pointer;">Reportar</button>
+            <button type="button" id="btn-cerrar-reporte" style="margin-left:10px;">Cerrar</button>
+        </form>
+        <div id="msg-reportar" style="margin-top:10px;color:green;"></div>
+    </div>
+    <div class="panel-info">
+        <h2>Información del Simulador</h2>
+        <p>Ubicación actual: <span id="ubicacion-usuario">Cargando...</span></p>
+        <div style="margin: 10px 0;">
+            <input id="destino-input" type="text" placeholder="Escribe una dirección o haz clic en el mapa" />
+            <button id="btn-destino">Ir al destino</button>
+            <button id="btn-simular">Simular movimiento</button>
+            <label style="margin-left:10px;">
+                <input type="checkbox" id="chk-ruta-segura" style="vertical-align:middle;"> Ruta más segura
+            </label>
+            <span id="destino-info" style="margin-left:10px;color:#007bff;"></span>
+        </div>
+        <div id="alerta-ruta-segura" style="color:#dc3545;font-weight:bold;margin:8px 0 0 0;"></div>
+    </div>
+    <div id="panel-supervision" style="margin:20px 0 10px 0; padding:12px; border:2px solid #444; border-radius:10px; background:#f8f9fa; max-width:500px;">
+        <h3 style="margin-top:0;">Panel de Supervisión de Agentes</h3>
+        <ul style="list-style:none; padding-left:0; font-size:17px;">
+            <li>Ubicación (GPS): <span id="estado-gps">⏳</span></li>
+            <li>Cámara: <span id="estado-camara">⏳</span></li>
+            <li>Voz (TTS): <span id="estado-voz">⏳</span></li>
+            <li>Detección de obstáculos: <span id="estado-deteccion">⏳</span></li>
+        </ul>
+        <div id="alerta-supervision" style="color:#dc3545; font-weight:bold;"></div>
+    </div>
+    {{ obstaculos|json_script:"obstaculos-json" }}
+    {{ coords_ruta01|json_script:"coords-ruta01-json" }}
+    {{ coords_ruta01_regreso|json_script:"coords-ruta01-regreso-json" }}
+    {{ coords_ruta22_ida|json_script:"coords-ruta22-ida-json" }}
+    {{ coords_ruta22_regreso|json_script:"coords-ruta22-regreso-json" }}
+    {{ coords_ruta44_inicio|json_script:"coords-ruta44-inicio-json" }}
+    {{ coords_ruta44_regreso|json_script:"coords-ruta44-regreso-json" }}
+    <!-- MODAL PARA REPORTAR OBSTÁCULO -->
+    <div id="modal-obstaculo" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0008;z-index:3000;align-items:center;justify-content:center;">
+        <div style="background:#fff;padding:28px 32px;border-radius:14px;min-width:320px;max-width:90vw;box-shadow:0 4px 24px #0003;position:relative;">
+            <button id="cerrar-modal-obstaculo" style="position:absolute;top:8px;right:12px;background:#dc3545;color:#fff;border:none;border-radius:50%;width:28px;height:28px;font-size:18px;cursor:pointer;">&times;</button>
+            <h2 style="margin-top:0;color:#dc3545;">Reportar Obstáculo</h2>
+            <form id="form-obstaculo">
+                <label>Tipo de obstáculo:<br>
+                    <select id="tipo-obstaculo-modal" required style="width:100%;padding:8px;margin-bottom:12px;">
+                        <option value="bache">Bache</option>
+                        <option value="poste">Poste</option>
+                        <option value="muro">Muro</option>
+                        <option value="vehiculo_mal_estacionado">Vehículo Mal Estacionado</option>
+                        <option value="rampa">Rampa Elevada</option>
+                        <option value="escalera">Escalera</option>
+                        <option value="cruce_peligroso">Cruce Peligroso</option>
+                        <option value="vereda_estrecha">Vereda Estrecha</option>
+                        <option value="zona_trafico_intenso">Zona de Tráfico Intenso</option>
+                        <option value="otro">Otro</option>
+                    </select>
+                </label>
+                <label>Descripción:<br>
+                    <textarea id="desc-obstaculo-modal" rows="2" style="width:100%;padding:8px;margin-bottom:12px;"></textarea>
+                </label>
+                <div id="msg-obstaculo" style="color:#28a745;margin-bottom:8px;"></div>
+                <button type="submit" style="background:#dc3545;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-size:16px;cursor:pointer;">Reportar</button>
+            </form>
+        </div>
+    </div>
+    <!-- MODAL PARA FILTRAR OBSTÁCULOS -->
+    <div id="modal-filtro" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:#0008;z-index:3000;align-items:center;justify-content:center;">
+        <div style="background:#fff;padding:24px 28px;border-radius:14px;min-width:260px;max-width:90vw;box-shadow:0 4px 24px #0003;position:relative;">
+            <button id="cerrar-modal-filtro" style="position:absolute;top:8px;right:12px;background:#28a745;color:#fff;border:none;border-radius:50%;width:28px;height:28px;font-size:18px;cursor:pointer;">&times;</button>
+            <h2 style="margin-top:0;color:#28a745;">Filtrar Obstáculos</h2>
+            <label>Tipo:<br>
+                <select id="filtro-tipo-obstaculo-modal" style="width:100%;padding:8px;margin-bottom:12px;">
+                    <option value="todos">Todos</option>
+                    <option value="bache">Bache</option>
+                    <option value="poste">Poste</option>
+                    <option value="muro">Muro</option>
+                    <option value="vehiculo_mal_estacionado">Vehículo Mal Estacionado</option>
+                    <option value="rampa">Rampa Elevada</option>
+                    <option value="escalera">Escalera</option>
+                    <option value="cruce_peligroso">Cruce Peligroso</option>
+                    <option value="vereda_estrecha">Vereda Estrecha</option>
+                    <option value="zona_trafico_intenso">Zona de Tráfico Intenso</option>
+                    <option value="otro">Otro</option>
+                </select>
+            </label>
+            <button id="aplicar-filtro-modal" style="background:#28a745;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:15px;">Aplicar filtro</button>
+        </div>
+    </div>
+    <!-- Indicador de reconocimiento de voz -->
+    <div id="indicador-voz" style="position:fixed;bottom:18px;right:18px;z-index:3001;display:flex;align-items:center;gap:8px;background:#fff;padding:8px 14px;border-radius:18px;box-shadow:0 2px 8px #0002;font-size:15px;">
+        <span id="icono-voz" style="display:inline-block;width:18px;height:18px;border-radius:50%;background:#f33;"></span>
+        <span id="texto-voz">Voz inactiva</span>
+        <button id="btn-reiniciar-voz" style="background:#007bff;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:13px;cursor:pointer;">Reiniciar voz</button>
+    </div>
+    <script>
+    // --- GOOGLE MAPS ---
+    let mapa, marcadorUsuario, directionsService, directionsRenderer, destinoMarker;
+    let ubicacionActual = {lat: -15.8402, lng: -70.0219};
+    let rutaActiva = null;
+    let simulando = false;
+    let simInterval = null;
+    let obstaculos = JSON.parse(document.getElementById('obstaculos-json').textContent);
+    let obstaculoMarkers = [];
+    let obstaculosAlertados = new Set();
+    const mensajesObstaculo = {
+        'bache': 'Cuidado, bache cercano',
+        'poste': 'Cuidado, poste cercano',
+        'vehiculo_mal_estacionado': 'Cuidado, vehículo mal estacionado',
+        'escalera': 'Cuidado, escalera cercana',
+        'rampa': 'Rampa cercana',
+        'señal': 'Cuidado, señal cercana',
+        'otro': 'Cuidado, obstáculo cercano'
+    };
+
+    function initMap() {
+        mapa = new google.maps.Map(document.getElementById('mapa'), {
+            center: ubicacionActual,
+            zoom: 15,
+            mapTypeControl: false
+        });
+        directionsService = new google.maps.DirectionsService();
+        directionsRenderer = new google.maps.DirectionsRenderer({map: mapa, suppressMarkers: true});
+        marcadorUsuario = new google.maps.Marker({
+            position: ubicacionActual,
+            map: mapa,
+            title: 'Tu ubicación',
+            icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
+        });
+        // Agregar marcadores de obstáculos
+        for (let o of obstaculos) {
+            agregarMarcadorObstaculo(o);
+        }
+        // Geolocalización
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(function(pos) {
+                ubicacionActual = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+                marcadorUsuario.setPosition(ubicacionActual);
+                mapa.setCenter(ubicacionActual);
+                document.getElementById('ubicacion-usuario').innerText = `Lat: ${ubicacionActual.lat.toFixed(6)}, Lng: ${ubicacionActual.lng.toFixed(6)}`;
+                if (rutaActiva) avanzarEnRutaPorUbicacion();
+            }, function() {
+                document.getElementById('ubicacion-usuario').innerText = 'No disponible';
+            }, {enableHighAccuracy:true, maximumAge:0, timeout:5000});
+        } else {
+            document.getElementById('ubicacion-usuario').innerText = 'No soportado';
+        }
+        const input = document.getElementById('destino-input');
+        const autocomplete = new google.maps.places.Autocomplete(input);
+        autocomplete.bindTo('bounds', mapa);
+        autocomplete.addListener('place_changed', function() {
+            const place = autocomplete.getPlace();
+            if (!place.geometry) return;
+            setDestino(place.geometry.location.lat(), place.geometry.location.lng(), place.formatted_address);
+        });
+        mapa.addListener('click', function(e) {
+            setDestino(e.latLng.lat(), e.latLng.lng(), `Lat: ${e.latLng.lat().toFixed(5)}, Lng: ${e.latLng.lng().toFixed(5)}`);
+        });
+        document.getElementById('btn-destino').onclick = function() {
+            const dir = input.value;
+            if (dir.trim() === '') return;
+            const geocoder = new google.maps.Geocoder();
+            geocoder.geocode({address: dir}, function(results, status) {
+                if (status === 'OK' && results[0]) {
+                    setDestino(results[0].geometry.location.lat(), results[0].geometry.location.lng(), results[0].formatted_address);
+                } else {
+                    document.getElementById('destino-info').innerText = 'No se encontró la dirección.';
+                }
+            });
+        };
+        document.getElementById('btn-simular').onclick = function() {
+            if (!rutaActiva || simulando) return;
+            simulando = true;
+            let step = 0;
+            let ubicacionRealAntesSim = Object.assign({}, ubicacionActual);
+            simInterval = setInterval(() => {
+                if (!rutaActiva || !rutaActiva.rutaCoords || step >= rutaActiva.rutaCoords.length) {
+                    clearInterval(simInterval);
+                    simulando = false;
+                    reproducirVoz('Has llegado a tu destino');
+                    ubicacionActual = ubicacionRealAntesSim;
+                    marcadorUsuario.setPosition(ubicacionActual);
+                    mapa.setCenter(ubicacionActual);
+                    document.getElementById('ubicacion-usuario').innerText = `Lat: ${ubicacionActual.lat.toFixed(6)}, Lng: ${ubicacionActual.lng.toFixed(6)}`;
+                    return;
+                }
+                ubicacionActual = rutaActiva.rutaCoords[step];
+                marcadorUsuario.setPosition(ubicacionActual);
+                mapa.setCenter(ubicacionActual);
+                document.getElementById('ubicacion-usuario').innerText = `Lat: ${ubicacionActual.lat.toFixed(6)}, Lng: ${ubicacionActual.lng.toFixed(6)}`;
+                avanzarEnRutaPorUbicacion();
+                step += 5;
+            }, 2500);
+        };
+    }
+    let destino = null;
+    function setDestino(lat, lng, nombre) {
+        destino = {lat, lng, nombre};
+        if (destinoMarker) destinoMarker.setMap(null);
+        destinoMarker = new google.maps.Marker({
+            position: {lat, lng},
+            map: mapa,
+            title: 'Destino',
+            icon: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+        });
+        document.getElementById('destino-info').innerText = `Destino: ${nombre}`;
+        reproducirVoz('Ruta calculada, viajemos juntos');
+        calcularRuta();
+    }
+    function detectarGirosRuta(rutaCoords) {
+        let giros = [];
+        for (let i = 1; i < rutaCoords.length - 1; i++) {
+            let p1 = rutaCoords[i - 1];
+            let p2 = rutaCoords[i];
+            let p3 = rutaCoords[i + 1];
+            let ang = calcularAngulo(p1, p2, p3);
+            if (Math.abs(ang) > 30) {
+                giros.push({
+                    index: i,
+                    tipo: ang > 0 ? 'izquierda' : 'derecha',
+                    lat: p2.lat,
+                    lng: p2.lng
+                });
+            }
+        }
+        return giros;
+    }
+    function calcularAngulo(p1, p2, p3) {
+        function toRad(x) { return x * Math.PI / 180; }
+        let dx1 = p2.lng - p1.lng;
+        let dy1 = p2.lat - p1.lat;
+        let dx2 = p3.lng - p2.lng;
+        let dy2 = p3.lat - p2.lat;
+        let ang1 = Math.atan2(dy1, dx1);
+        let ang2 = Math.atan2(dy2, dx2);
+        let ang = (ang2 - ang1) * 180 / Math.PI;
+        if (ang > 180) ang -= 360;
+        if (ang < -180) ang += 360;
+        return ang;
+    }
+    let girosDetectados = [];
+    function calcularRuta() {
+        if (!destino) return;
+        directionsService.route({
+            origin: ubicacionActual,
+            destination: {lat: destino.lat, lng: destino.lng},
+            travelMode: 'WALKING'
+        }, function(result, status) {
+            if (status === 'OK') {
+                directionsRenderer.setDirections(result);
+                let rutaCoords = [];
+                let instrucciones = [];
+                let steps = result.routes[0].legs[0].steps;
+                for (let i = 0; i < steps.length; i++) {
+                    let step = steps[i];
+                    let lat = step.start_location.lat();
+                    let lng = step.start_location.lng();
+                    rutaCoords.push({lat, lng});
+                    instrucciones.push({text: step.instructions.replace(/<[^>]+>/g, ''), lat, lng, index: rutaCoords.length-1});
+                }
+                let end = steps[steps.length-1].end_location;
+                rutaCoords.push({lat: end.lat(), lng: end.lng()});
+                instrucciones.push({text: 'Has llegado a tu destino', lat: end.lat(), lng: end.lng(), index: rutaCoords.length-1});
+                rutaActiva = {rutaCoords, instrucciones, instruccionesDadas: []};
+                girosDetectados = detectarGirosRuta(rutaCoords);
+                let rutaSegura = document.getElementById('chk-ruta-segura').checked;
+                let advertencias = [];
+                if (rutaSegura) {
+                    for (let o of obstaculos) {
+                        for (let p of rutaCoords) {
+                            let dist = getDistance(o.latitud, o.long, p.lat, p.lng);
+                            if (dist < 20) {
+                                advertencias.push(`¡Atención! Obstáculo (${o.tipo}) a ${Math.round(dist)} metros de la ruta.`);
+                                reproducirVoz(`Atención, la ruta pasa cerca de un obstáculo: ${o.tipo} a ${Math.round(dist)} metros.`);
+                                break;
+                            }
+                        }
+                    }
+                }
+                document.getElementById('alerta-ruta-segura').innerText = advertencias.length ? advertencias.join('\n') : '';
+            }
+        });
+    }
+    let girosDichos = {};
+    function avanzarEnRutaPorUbicacion() {
+        if (!rutaActiva || !rutaActiva.instrucciones) return;
+        const instrucciones = rutaActiva.instrucciones;
+        for (let i = 0; i < instrucciones.length; i++) {
+            const instr = instrucciones[i];
+            if (rutaActiva.instruccionesDadas && rutaActiva.instruccionesDadas.includes(i)) continue;
+            const dist = getDistance(ubicacionActual.lat, ubicacionActual.lng, instr.lat, instr.lng);
+            let distRedondeada = Math.round(dist);
+            if (distRedondeada < 20) {
+                let texto = instr.text.toLowerCase();
+                let instruccionVoz = '';
+                let accion = '';
+                if (texto.includes('izquierda')) {
+                    accion = 'gira a la izquierda';
+                } else if (texto.includes('derecha')) {
+                    accion = 'gira a la derecha';
+                } else if (texto.includes('recto') || texto.includes('frente') || texto.includes('sigue')) {
+                    accion = 'sigue al frente';
+                } else if (texto.includes('destino')) {
+                    accion = 'has llegado a tu destino';
+                } else {
+                    accion = 'sigue al frente';
+                }
+                if (texto.includes('destino') || distRedondeada < 2) {
+                    instruccionVoz = accion.charAt(0).toUpperCase() + accion.slice(1);
+                } else {
+                    instruccionVoz = `En ${distRedondeada} metros, ${accion}`;
+                }
+                reproducirVoz(instruccionVoz);
+                rutaActiva.instruccionesDadas.push(i);
+                if (i === instrucciones.length - 1) {
+                    reproducirVoz('Has llegado a tu destino');
+                }
+                break;
+            }
+        }
+        for (let j = 0; j < girosDetectados.length; j++) {
+            const giro = girosDetectados[j];
+            const key = `giro_${giro.index}`;
+            const distGiro = getDistance(ubicacionActual.lat, ubicacionActual.lng, giro.lat, giro.lng);
+            let distGiroRed = Math.round(distGiro);
+            if (distGiroRed < 20) {
+                if (!girosDichos[key] || Math.abs(girosDichos[key] - distGiroRed) >= 5) {
+                    let instruccionGiro = '';
+                    if (distGiroRed < 2) {
+                        instruccionGiro = `Gira a la ${giro.tipo}`;
+                    } else {
+                        instruccionGiro = `En ${distGiroRed} metros, gira a la ${giro.tipo}`;
+                    }
+                    reproducirVoz(instruccionGiro);
+                    girosDichos[key] = distGiroRed;
+                }
+            }
+        }
+        for (let i = 0; i < obstaculos.length; i++) {
+            const o = obstaculos[i];
+            const key = `${o.tipo}_${o.latitud}_${o.long}`;
+            if (obstaculosAlertados.has(key)) continue;
+            const distObs = getDistance(ubicacionActual.lat, ubicacionActual.lng, o.latitud, o.longitud);
+            if (distObs < 20) {
+                let msg = mensajesObstaculo[o.tipo] || 'Cuidado, obstáculo cercano';
+                reproducirVoz(msg);
+                obstaculosAlertados.add(key);
+                let marker = obstaculoMarkers[i];
+                if (marker) {
+                    let originalIcon = marker.getIcon();
+                    let yellowIcon = {
+                        url: 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
+                        scaledSize: new google.maps.Size(32, 32)
+                    };
+                    let blinkCount = 0;
+                    let blinkInterval = setInterval(() => {
+                        marker.setIcon((blinkCount % 2 === 0) ? yellowIcon : originalIcon);
+                        blinkCount++;
+                        if (blinkCount > 7) {
+                            clearInterval(blinkInterval);
+                            marker.setIcon(yellowIcon);
+                        }
+                    }, 350);
+                }
+            }
+        }
+    }
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3;
+        const phi1 = lat1 * Math.PI / 180;
+        const phi2 = lat2 * Math.PI / 180;
+        const dPhi = (lat2 - lat1) * Math.PI / 180;
+        const dLambda = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dPhi / 2) * Math.sin(dPhi / 2) +
+                  Math.cos(phi1) * Math.cos(phi2) *
+                  Math.sin(dLambda / 2) * Math.sin(dLambda / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+    let polilineasRutas = {};
+    function crearPolilineaRuta(nombre, coords, color, opacidad) {
+        return new google.maps.Polyline({
+            path: coords,
+            geodesic: true,
+            strokeColor: color,
+            strokeOpacity: opacidad,
+            strokeWeight: 4,
+            map: null
+        });
+    }
+    // --- CÁMARA INTELIGENTE Y DETECCIÓN DE OBJETOS ---
+    const video = document.getElementById('video-camara-inteligente');
+    const panelCamara = document.getElementById('panel-camara-inteligente');
+    const btnCamaraInteligente = document.getElementById('btn-camara-inteligente');
+    const btnCerrarCamara = document.querySelector('.btn-cerrar-panel-camara');
+    const resultadoInteligente = document.getElementById('resultado-inteligente');
+    const estadoCamara = document.getElementById('estado-camara');
+    const estadoDeteccion = document.getElementById('estado-deteccion');
+    let modeloCoco;
+    let cameraActiva = false;
+    // Mensajes personalizados para cada clase detectada
+    const mensajesVoz = {
+        'person': 'Cuidado, persona detectada',
+        'car': 'Cuidado, auto detectado',
+        'bicycle': 'Cuidado, bicicleta detectada',
+        'motorcycle': 'Cuidado, motocicleta detectada',
+        'bus': 'Cuidado, bus detectado',
+        'truck': 'Cuidado, camión detectado',
+        'dog': 'Cuidado, perro detectado',
+        'cat': 'Cuidado, gato detectado',
+        'traffic light': 'Semáforo detectado',
+        'stop sign': 'Señal de alto detectada',
+        // Agrega más clases si lo deseas
+    };
+    let ultimoObjetoDetectado = '';
+    async function iniciarCamara() {
+        if (cameraActiva) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video.srcObject = stream;
+            video.addEventListener('loadeddata', () => {
+                panelCamara.style.display = 'block';
+                cameraActiva = true;
+                estadoCamara.innerText = '✅ Activa';
+                if (!modeloCoco) {
+                    cargarModeloCoco();
+                } else {
+                    detectarObjetosContinuamente();
+                }
+            });
+        } catch (error) {
+            console.error("Error al acceder a la cámara: ", error);
+            estadoCamara.innerText = '❌ Error';
+            reproducirVoz('No se pudo acceder a la cámara.');
+        }
+    }
+    function detenerCamara() {
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+            video.srcObject = null;
+        }
+        cameraActiva = false;
+        panelCamara.style.display = 'none';
+        estadoCamara.innerText = '❌ Inactiva';
+        resultadoInteligente.innerText = '';
+        estadoDeteccion.innerText = '⏳';
+        window.speechSynthesis.cancel(); // Detener voz al cerrar
+    }
+    btnCamaraInteligente.addEventListener('click', () => {
+        if (cameraActiva) {
+            detenerCamara();
+        } else {
+            iniciarCamara();
+        }
+    });
+    btnCerrarCamara.addEventListener('click', detenerCamara);
+    async function cargarModeloCoco() {
+        estadoDeteccion.innerText = '⏳ Cargando modelo...';
+        try {
+            modeloCoco = await cocoSsd.load();
+            estadoDeteccion.innerText = '✅ Listo';
+            reproducirVoz('Detección de objetos lista.');
+            detectarObjetosContinuamente();
+        } catch (error) {
+            console.error("Error al cargar el modelo COCO-SSD: ", error);
+            estadoDeteccion.innerText = '❌ Error';
+            reproducirVoz('Error al cargar el modelo de detección de objetos.');
+        }
+    }
+    async function detectarObjetosContinuamente() {
+        if (!modeloCoco || !cameraActiva) return;
+        const predicciones = await modeloCoco.detect(video);
+        let textoPredicciones = '';
+        let objetosDetectados = new Set();
+        predicciones.forEach(prediccion => {
+            if (prediccion.score > 0.6) {
+                objetosDetectados.add(prediccion.class);
+            }
+        });
+        if (objetosDetectados.size > 0) {
+            let primero = Array.from(objetosDetectados)[0];
+            if (
+                primero !== ultimoObjetoDetectado &&
+                primero !== 'cell phone' &&
+                primero !== 'scissors'
+            ) {
+                let vozTexto = mensajesVoz[primero] || `Alerta, se ha detectado: ${primero}`;
+                reproducirVoz(vozTexto);
+                ultimoObjetoDetectado = primero;
+            }
+            textoPredicciones = `Se detectó: ${Array.from(objetosDetectados).join(', ')}`;
+        } else {
+            textoPredicciones = 'No se detectaron objetos.';
+            ultimoObjetoDetectado = '';
+        }
+        resultadoInteligente.innerText = textoPredicciones;
+        requestAnimationFrame(detectarObjetosContinuamente);
+    }
+    // Función TTS (Text-to-Speech)
+    function reproducirVoz(texto) {
+        if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(texto);
+            utterance.lang = 'es-ES'; // Forzar español
+            window.speechSynthesis.speak(utterance);
+        } else {
+            console.warn('Text-to-speech no es soportado en este navegador.');
+        }
+    }
+    function agregarMarcadorObstaculo(obstaculo) {
+        const marker = new google.maps.Marker({
+            position: {lat: obstaculo.latitud, lng: obstaculo.longitud},
+            map: mapa,
+            title: obstaculo.nombre + ' (' + obstaculo.tipo + ')',
+            icon: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png' // Ícono para obstáculos
+        });
+        const infowindow = new google.maps.InfoWindow({
+            content: `<b>${obstaculo.nombre}</b><br>${obstaculo.tipo}<br>${obstaculo.descripcion}`
+        });
+        marker.addListener('click', () => infowindow.open(mapa, marker));
+        obstaculoMarkers.push(marker);
+    }
+    function getMicrosCercanos(lat, lng) {
+        const microbuses = [];
+        const umbralDistancia = 50; // en metros
+        for (const ruta in polilineasRutas) {
+            if (polilineasRutas.hasOwnProperty(ruta)) {
+                const polyline = polilineasRutas[ruta];
+                if (polyline.getPath()) {
+                    for (const punto of polyline.getPath().getArray()) {
+                        const dist = getDistance(lat, lng, punto.lat(), punto.lng());
+                        if (dist < umbralDistancia) {
+                            microbuses.push(ruta);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return [...new Set(microbuses)]; // Devuelve rutas únicas
+    }
+    
+    // Carga inicial y listeners
+    document.addEventListener('DOMContentLoaded', function() {
+        initMap();
+        const coordsRuta01 = JSON.parse(document.getElementById('coords-ruta01-json').textContent);
+        const coordsRuta01Regreso = JSON.parse(document.getElementById('coords-ruta01-regreso-json').textContent);
+        const coordsRuta22Ida = JSON.parse(document.getElementById('coords-ruta22-ida-json').textContent);
+        const coordsRuta22Regreso = JSON.parse(document.getElementById('coords-ruta22-regreso-json').textContent);
+        const coordsRuta44Inicio = JSON.parse(document.getElementById('coords-ruta44-inicio-json').textContent);
+        const coordsRuta44Regreso = JSON.parse(document.getElementById('coords-ruta44-regreso-json').textContent);
+    
+        polilineasRutas['01_ida'] = crearPolilineaRuta('01_ida', coordsRuta01, '#FF0000', 1.0);
+        polilineasRutas['01_regreso'] = crearPolilineaRuta('01_regreso', coordsRuta01Regreso, '#FF0000', 0.6);
+        polilineasRutas['22_ida'] = crearPolilineaRuta('22_ida', coordsRuta22Ida, '#0000FF', 1.0);
+        polilineasRutas['22_regreso'] = crearPolilineaRuta('22_regreso', coordsRuta22Regreso, '#0000FF', 0.6);
+        polilineasRutas['44_inicio'] = crearPolilineaRuta('44_inicio', coordsRuta44Inicio, '#8000FF', 0.7);
+        polilineasRutas['44_regreso'] = crearPolilineaRuta('44_regreso', coordsRuta44Regreso, '#8000FF', 0.7);
+
+        setTimeout(() => { Object.values(polilineasRutas).forEach(p => { if (p) p.setMap(null); }); }, 500);
+        document.querySelectorAll('.chk-ruta').forEach(chk => {
+            chk.addEventListener('change', function() {
+                let key = this.dataset.ruta;
+                if (this.checked) {
+                    if (polilineasRutas[key]) polilineasRutas[key].setMap(mapa);
+                } else {
+                    if (polilineasRutas[key]) polilineasRutas[key].setMap(null);
+                }
+            });
+        });
+        const panelRutas = document.getElementById('panel-rutas');
+        const btnTogglePanel = document.getElementById('btn-toggle-panel');
+        btnTogglePanel.addEventListener('click', function() {
+            panelRutas.classList.toggle('colapsado');
+        });
+
+        // Solución al problema de los botones "Obstáculo" y "Filtrar"
+        const btnNuevoObstaculo = document.getElementById('btn-nuevo-obstaculo');
+        const formReportarObstaculo = document.getElementById('form-reportar-obstaculo');
+        const btnNuevoFiltro = document.getElementById('btn-nuevo-filtro');
+        const filtroObstaculoPanel = document.getElementById('filtro-obstaculo-panel');
+        const btnCerrarFiltro = document.getElementById('cerrar-filtro-obstaculo');
+        const btnCerrarReporte = document.getElementById('btn-cerrar-reporte');
+        const obstaculoForm = document.getElementById('obstaculo-form');
+        const msgReportar = document.getElementById('msg-reportar');
+        const tipoObstaculo = document.getElementById('tipo-obstaculo-modal');
+        const descObstaculo = document.getElementById('desc-obstaculo-modal');
+
+        btnNuevoObstaculo.addEventListener('click', function() {
+            if (formReportarObstaculo.style.display === 'block') {
+                formReportarObstaculo.style.display = 'none';
+            } else {
+                formReportarObstaculo.style.display = 'block';
+            }
+        });
+
+        btnNuevoFiltro.addEventListener('click', function() {
+            if (filtroObstaculoPanel.style.display === 'block') {
+                filtroObstaculoPanel.style.display = 'none';
+            } else {
+                filtroObstaculoPanel.style.display = 'block';
+            }
+        });
+
+        btnCerrarFiltro.addEventListener('click', function() {
+            filtroObstaculoPanel.style.display = 'none';
+        });
+
+        btnCerrarReporte.addEventListener('click', function() {
+            formReportarObstaculo.style.display = 'none';
+        });
+
+        // Lógica para enviar el formulario de obstáculo (se integra con el backend Django)
+        obstaculoForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // Datos del formulario
+            const tipo = tipoObstaculo.value;
+            const descripcion = descObstaculo.value;
+            const latitud = ubicacionActual.lat;
+            const longitud = ubicacionActual.lng;
+
+            // Datos a enviar a Django
+            const data = {
+                tipo,
+                descripcion,
+                latitud,
+                longitud,
+                nombre: tipo.charAt(0).toUpperCase() + tipo.slice(1) // Nombre simple para el marcador
+            };
+
+            const url = 'http://127.0.0.1:8000/deteccion/reportar_obstaculo/'; 
+            
+            msgReportar.textContent = 'Enviando...';
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Error en la respuesta del servidor');
+                }
+
+                const nuevoObstaculo = await response.json();
+
+                formReportarObstaculo.style.display = 'none';
+                
+                obstaculos.push(nuevoObstaculo);
+
+                agregarMarcadorObstaculo(nuevoObstaculo);
+                
+                msgReportar.textContent = 'Obstáculo reportado con éxito.';
+                console.log('Obstáculo guardado:', nuevoObstaculo);
+
+            } catch (error) {
+                console.error('Error al reportar el obstáculo:', error);
+                msgReportar.textContent = 'Error al reportar el obstáculo.';
+            }
+
+            obstaculoForm.reset();
+            setTimeout(() => { msgReportar.textContent = ''; }, 3000);
+        });
+
+        // Lógica para el icono arrastrable de "Destino Final"
+        const iconoDestino = document.getElementById('icono-destino-final');
+        const textoMicros = document.getElementById('texto-micros-flotante');
+
+        iconoDestino.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('text/plain', 'destino-final');
+        });
+
+        // Permitir drop sobre el div del mapa y mejorar feedback visual
+        const mapaDiv = document.getElementById('mapa');
+        mapaDiv.addEventListener('dragover', function(e) {
+            e.preventDefault(); // Permite soltar
+            mapaDiv.style.cursor = 'copy';
+        });
+        mapaDiv.addEventListener('dragenter', function(e) {
+            mapaDiv.style.cursor = 'copy';
+        });
+        mapaDiv.addEventListener('dragleave', function(e) {
+            mapaDiv.style.cursor = '';
+        });
+        mapaDiv.addEventListener('drop', function(e) {
+            e.preventDefault();
+            mapaDiv.style.cursor = '';
+
+            // Obtener la posición del mouse relativa al div del mapa
+            const rect = mapaDiv.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Convertir a coordenadas de Google Maps
+            const projection = mapa.getProjection();
+            const bounds = mapa.getBounds();
+            if (!projection || !bounds) return; // Esperar a que el mapa esté listo
+
+            const topRight = projection.fromLatLngToPoint(bounds.getNorthEast());
+            const bottomLeft = projection.fromLatLngToPoint(bounds.getSouthWest());
+            const scale = Math.pow(2, mapa.getZoom());
+            const worldPoint = new google.maps.Point(x / scale + bottomLeft.x, y / scale + topRight.y);
+            const latLng = projection.fromPointToLatLng(worldPoint);
+
+            const lat = latLng.lat();
+            const lng = latLng.lng();
+
+            if (destinoMarker) destinoMarker.setMap(null);
+
+            destinoMarker = new google.maps.Marker({
+                position: {lat, lng},
+                map: mapa,
+                title: 'Destino',
+                icon: 'https://maps.gstatic.com/mapfiles/ms/micons/red-dot.png'
+            });
+
+            // Aquí tu lógica para micros cercanos...
+            const microsCercanos = getMicrosCercanos(lat, lng);
+            let texto = '';
+            if (microsCercanos.length > 0) {
+                rutasCercanasActuales = microsCercanos.map(m => m.split('_')[0]);
+                texto = `Micros cercanas:\n${microsCercanos.map(m => `Ruta ${m.split('_')[0]}`).join(', ')}`;
+            } else {
+                // Calcular las dos rutas más cercanas
+                let distancias = [];
+                for (const ruta in polilineasRutas) {
+                    const polyline = polilineasRutas[ruta];
+                    if (polyline && polyline.getPath()) {
+                        let minDist = Infinity;
+                        polyline.getPath().forEach(p => {
+                            const dist = getDistance(lat, lng, p.lat(), p.lng());
+                            if (dist < minDist) minDist = dist;
+                        });
+                        distancias.push({ruta, distancia: minDist});
+                    }
+                }
+                distancias.sort((a, b) => a.distancia - b.distancia);
+                const sugeridas = distancias.slice(0, 2).map(d => d.ruta.split('_')[0]);
+                rutasCercanasActuales = sugeridas;
+                texto = `No hay micros cercanas aquí.\nOpciones más cercanas: ${sugeridas.map(r => `Ruta ${r}`).join(', ')}`;
+            }
+            textoMicros.textContent = texto;
+            const overlay = new google.maps.OverlayView();
+            overlay.setMap(mapa);
+            overlay.onAdd = function() {
+                const pane = this.getPanes().floatPane;
+                pane.appendChild(textoMicros);
+            };
+            overlay.draw = function() {
+                const projection = this.getProjection();
+                const point = projection.fromLatLngToDivPixel(new google.maps.LatLng(lat, lng));
+                textoMicros.style.left = `${point.x + 20}px`;
+                textoMicros.style.top = `${point.y - 10}px`;
+            };
+            textoMicros.style.display = 'block';
+        });
+
+    });
+    // --- RECONOCIMIENTO DE VOZ PARA CONTROLAR LA CÁMARA INTELIGENTE ---
+    (function(){
+        // Compatibilidad con diferentes navegadores
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const iconoVoz = document.getElementById('icono-voz');
+        const textoVoz = document.getElementById('texto-voz');
+        const btnReiniciarVoz = document.getElementById('btn-reiniciar-voz');
+        let recognition;
+        let escuchando = false;
+        let forzarVoz = true;
+        function actualizarIndicadorVoz() {
+            if (escuchando) {
+                iconoVoz.style.background = '#2ecc40';
+                textoVoz.textContent = 'Voz activa';
+            } else {
+                iconoVoz.style.background = '#f33';
+                textoVoz.textContent = 'Voz inactiva';
+            }
+        }
+        function iniciarReconocimiento() {
+            if (!SpeechRecognition) {
+                textoVoz.textContent = 'Voz no soportada';
+                btnReiniciarVoz.disabled = true;
+                return;
+            }
+            recognition = new SpeechRecognition();
+            recognition.lang = 'es-ES';
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.onstart = function() {
+                escuchando = true;
+                actualizarIndicadorVoz();
+            };
+            recognition.onend = function() {
+                escuchando = false;
+                actualizarIndicadorVoz();
+                if (forzarVoz) setTimeout(()=>{ try { recognition.start(); } catch(e){} }, 1000);
+            };
+            recognition.onerror = function(e) {
+                escuchando = false;
+                actualizarIndicadorVoz();
+                if (forzarVoz) {
+                    try { recognition.stop(); } catch(e){}
+                    setTimeout(()=>{ try { recognition.start(); } catch(e){} }, 1000);
+                }
+            };
+            recognition.onresult = function(event) {
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        const transcript = event.results[i][0].transcript.trim().toLowerCase();
+                        if (transcript.includes('activar cámara')) {
+                            if (!panelCamara.style.display || panelCamara.style.display === 'none') {
+                                btnCamaraInteligente.click();
+                            }
+                        } else if (transcript.includes('detener cámara') || transcript.includes('desactivar cámara')) {
+                            if (panelCamara.style.display && panelCamara.style.display !== 'none') {
+                                if (typeof detenerCamara === 'function') detenerCamara();
+                                if (btnCerrarCamara) btnCerrarCamara.click();
+                            }
+                        }
+                    }
+                }
+            };
+            recognition.start();
+        }
+        btnReiniciarVoz.onclick = function() {
+            if (recognition) {
+                try { recognition.stop(); } catch(e){}
+            }
+            setTimeout(iniciarReconocimiento, 300);
+        };
+        iniciarReconocimiento();
+        // Watchdog: fuerza el reconocimiento de voz a estar siempre activo
+        setInterval(function() {
+            if (forzarVoz && (!escuchando || !recognition)) {
+                try { recognition && recognition.stop(); } catch(e){}
+                setTimeout(iniciarReconocimiento, 200);
+            }
+        }, 1200);
+    })();
+    // --- OCR en la cámara inteligente para detectar números de micro ---
+    async function detectarOCRenVideo() {
+        const video = document.getElementById('video-camara-inteligente');
+        const resultadoDiv = document.getElementById('resultado-inteligente');
+        if (!video || !resultadoDiv || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+        // Captura un frame del video
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = canvas.toDataURL('image/png');
+
+        // Ejecuta OCR
+        Tesseract.recognize(
+            imageData,
+            'eng',
+            { logger: m => {} }
+        ).then(({ data: { text } }) => {
+            let numero = text.replace(/\D/g, '');
+            console.log('Texto OCR:', text, 'Número extraído:', numero, 'Rutas cercanas:', rutasCercanasActuales);
+            if (numero) {
+                resultadoDiv.innerHTML = `<span style='color:green;'>¡Número detectado: <b>${numero}</b></span><br><span style='color:#888;'>Texto OCR: <code>${text}</code></span>`;
+                if (rutasCercanasActuales.includes(numero)) {
+                    reproducirVoz('Es la micro correcta, ingresa a ruta');
+                }
+            } else {
+                resultadoDiv.innerHTML = `<span style='color:#888;'>No se detectó número.<br>Texto OCR: <code>${text}</code></span>`;
+            }
+        });
+    }
+    // Llama a esta función cada 2 segundos mientras la cámara esté activa
+    setInterval(() => {
+        if (typeof cameraActiva !== 'undefined' && cameraActiva) detectarOCRenVideo();
+    }, 2000);
+    </script>
+</body>
+</html>
